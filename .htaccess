@@ -1,0 +1,19 @@
+# Hostinger (LiteSpeed/Apache) publica a pasta do repositorio como esta.
+
+# Sempre revalida o HTML: sem isso o navegador segurava a versao antiga
+# do app depois de um deploy.
+<IfModule mod_headers.c>
+  <FilesMatch "\.html?$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  # config.js tem as chaves do banco: sempre buscar a versao nova
+  <Files "config.js">
+    Header set Cache-Control "no-cache"
+  </Files>
+</IfModule>
+
+# Arquivos de desenvolvimento nao sao publicos (schema do banco, build etc.)
+<FilesMatch "\.(sql|mjs|md|toml|json|lock|ts)$">
+  Require all denied
+</FilesMatch>
+RedirectMatch 404 ^/(src|supabase|netlify|node_modules|dist|\.git|\.github|\.claude)(/|$)

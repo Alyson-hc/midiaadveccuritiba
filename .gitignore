@@ -1,0 +1,7 @@
+.DS_Store
+.vercel
+*.log
+node_modules
+dist
+backups
+entrega

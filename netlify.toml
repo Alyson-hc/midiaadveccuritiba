@@ -1,0 +1,13 @@
+# Configuração caso o site volte pro Netlify (hoje ele esta na Hostinger).
+#
+# src/index.html e o ARQUIVO-FONTE. `npm run build` compila e escreve o
+# index.html da raiz, que ja vai commitado — por isso publish = ".".
+
+[build]
+  command = "npm run build"
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  # Node 18+ tem fetch nativo; sem dependências externas
+  node_bundler = "esbuild"
