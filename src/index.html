@@ -3400,6 +3400,10 @@ const MobileTabBar = ({ items, active, onChange, onOpenMore, moreOpen }) => {
 };
 
 const Sidebar = ({ items, active, onChange, title, subtitle, onLogout, mobileOpen, setMobileOpen }) => {
+  // No computador a barra pode ser recolhida (so icones). Fica salvo neste aparelho.
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('mm-side-collapsed') === '1'; } catch { return false; } });
+  const toggleCollapsed = () => setCollapsed(v => { const n = !v; try { localStorage.setItem('mm-side-collapsed', n ? '1' : '0'); } catch {} return n; });
+  const c = collapsed; // atalho: so vale de md pra cima (no celular a gaveta e sempre completa)
   const handleClick = (id) => {
     onChange(id);
     setMobileOpen(false);
@@ -3414,6 +3418,9 @@ const Sidebar = ({ items, active, onChange, title, subtitle, onLogout, mobileOpe
     document.addEventListener('keydown', onKey);
     return () => { document.body.style.overflow = prev; document.removeEventListener('keydown', onKey); };
   }, [mobileOpen, setMobileOpen]);
+
+  const groupDot = (g) => g === 'Comunicação' ? 'mm-lime-dot' : g === 'Voluntários' ? 'bg-cyan-400' : 'bg-[var(--gvv-blue)]';
+  const hideWhenC = c ? 'md:hidden' : '';
 
   return (
     <>
@@ -3432,21 +3439,29 @@ const Sidebar = ({ items, active, onChange, title, subtitle, onLogout, mobileOpe
       <aside className={`
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         fixed md:sticky top-0 left-0 z-50 md:z-10
-        w-[86vw] max-w-[320px] md:w-72 mm-dvh flex-shrink-0
+        w-[86vw] max-w-[320px] ${c ? 'md:w-[76px]' : 'md:w-72'} mm-dvh flex-shrink-0
         bg-[var(--bg-surface)] md:bg-[var(--bg-glass)] backdrop-blur-xl border-r border-white/8
         flex flex-col mm-safe-t
-        transition-transform duration-300 ease-out
+        transition-[transform,width] duration-300 ease-out
       `}>
-        <div className="px-5 md:px-6 py-5 md:py-6 border-b border-white/8 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[var(--gvv-blue)] flex items-center justify-center shadow-[var(--shadow-brand)]">
+        <div className={`px-5 py-5 border-b border-white/8 flex items-center justify-between gap-3 ${c ? 'md:px-0 md:justify-center md:flex-col md:gap-2' : 'md:px-5'}`}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-[var(--gvv-blue)] flex items-center justify-center shadow-[var(--shadow-brand)] flex-shrink-0">
               <Sparkles className="w-4 h-4 text-[var(--gvv-lime)]" fill="currentColor" strokeWidth={1.5} />
             </div>
-            <div className="min-w-0">
-              <h2 className="font-serif text-base text-zinc-50 truncate italic">{title}</h2>
+            <div className={`min-w-0 ${hideWhenC}`}>
+              <h2 className="font-serif text-base text-zinc-50 truncate">{title}</h2>
               <p className="text-[11px] text-zinc-400 uppercase tracking-wider truncate">{subtitle}</p>
             </div>
           </div>
+          <button
+            onClick={toggleCollapsed}
+            title={c ? 'Mostrar menu' : 'Esconder menu'}
+            aria-label={c ? 'Mostrar menu' : 'Esconder menu'}
+            className="hidden md:flex w-8 h-8 rounded-lg border border-white/12 text-zinc-400 hover:text-zinc-100 hover:bg-white/8 items-center justify-center flex-shrink-0"
+          >
+            {c ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
           <button
             onClick={() => setMobileOpen(false)}
             aria-label="Fechar menu"
@@ -3456,7 +3471,7 @@ const Sidebar = ({ items, active, onChange, title, subtitle, onLogout, mobileOpe
           </button>
         </div>
 
-        <nav className="flex-1 px-3 py-4 overflow-y-auto">
+        <nav className={`flex-1 px-3 py-4 overflow-y-auto overflow-x-hidden ${c ? 'md:px-2' : ''}`}>
           <div className="space-y-0.5">
             {items.map((item, idx) => {
               const Icon = item.icon;
@@ -3465,24 +3480,33 @@ const Sidebar = ({ items, active, onChange, title, subtitle, onLogout, mobileOpe
               return (
                 <React.Fragment key={item.id}>
                 {newGroup && (
-                  <div className={`flex items-center gap-2 px-3 pb-1.5 ${idx === 0 ? 'pt-0' : 'pt-5'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${item.group === 'Comunicação' ? 'mm-lime-dot' : 'bg-[var(--gvv-blue)]'}`} />
-                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">{item.group}</span>
-                  </div>
+                  <>
+                    <div className={`flex items-center gap-2 px-3 pb-1.5 ${idx === 0 ? 'pt-0' : 'pt-5'} ${hideWhenC}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${groupDot(item.group)}`} />
+                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">{item.group}</span>
+                    </div>
+                    {c && idx > 0 && <div className="hidden md:block mx-3 my-3 h-px bg-white/10" />}
+                  </>
                 )}
                 <button
                   onClick={() => handleClick(item.id)}
-                  className={`mm-tap relative w-full flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-xl text-sm transition-all duration-150 group ${
+                  title={c ? item.label : undefined}
+                  className={`mm-tap relative w-full flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-xl text-sm transition-all duration-150 group ${c ? 'md:justify-center md:px-0' : ''} ${
                     isActive
                       ? 'bg-white/8 text-zinc-50'
                       : 'text-zinc-300 hover:text-zinc-50 hover:bg-white/[0.04]'
                   }`}
                 >
                   {isActive && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-[var(--brand)]" />}
-                  <Icon className={`w-4 h-4 transition-colors ${isActive ? 'text-brand-200' : 'group-hover:text-zinc-100'}`} />
-                  <span className="font-medium flex-1 text-left">{item.label}</span>
+                  <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${c ? 'md:w-5 md:h-5' : ''} ${isActive ? 'text-brand-200' : 'group-hover:text-zinc-100'}`} />
+                  <span className={`font-medium flex-1 text-left truncate ${hideWhenC}`}>{item.label}</span>
                   {item.badge !== undefined && item.badge > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                    c
+                      ? <span className="hidden md:flex absolute top-1 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--brand)] text-white text-[9px] font-bold items-center justify-center">{item.badge}</span>
+                      : null
+                  )}
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${hideWhenC} ${
                       isActive ? 'bg-brand-400/25 text-brand-100' : 'bg-white/8 text-zinc-200'
                     }`}>
                       {item.badge}
@@ -3495,14 +3519,20 @@ const Sidebar = ({ items, active, onChange, title, subtitle, onLogout, mobileOpe
           </div>
         </nav>
 
-        <div className="p-3 border-t border-white/8 space-y-1.5 mm-safe-b">
-          <ThemeToggle className="w-full justify-start mm-tap" />
+        <div className={`p-3 border-t border-white/8 space-y-1.5 mm-safe-b ${c ? 'md:px-2' : ''}`}>
+          {c ? (
+            <>
+              <ThemeToggle compact className="hidden md:flex mx-auto" />
+              <ThemeToggle className="w-full justify-start mm-tap md:hidden" />
+            </>
+          ) : <ThemeToggle className="w-full justify-start mm-tap" />}
           <button
             onClick={onLogout}
-            className="mm-tap w-full flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-xl text-sm text-zinc-400 hover:text-rose-500 hover:bg-rose-500/8 transition-all"
+            title="Sair"
+            className={`mm-tap w-full flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-xl text-sm text-zinc-400 hover:text-rose-500 hover:bg-rose-500/8 transition-all ${c ? 'md:justify-center md:px-0' : ''}`}
           >
             <LogOut className="w-4 h-4" />
-            <span className="font-medium">Sair</span>
+            <span className={`font-medium ${hideWhenC}`}>Sair</span>
           </button>
         </div>
       </aside>
@@ -7580,6 +7610,8 @@ const ContentAgendaView = ({ authorName = '', people = [], readOnly = false, meI
   const [viewing, setViewing] = useState(null);
   const [catsOpen, setCatsOpen] = useState(false);
   const dayPanelRef = useRef(null);
+  const [mode, setModeState] = useState(() => { try { return localStorage.getItem('mm-agenda-mode') || 'lista'; } catch { return 'lista'; } });
+  const setMode = (m) => { setModeState(m); try { localStorage.setItem('mm-agenda-mode', m); } catch {} };
 
   const load = useCallback(async () => {
     const [c, i] = await Promise.all([
@@ -7706,6 +7738,60 @@ const ContentAgendaView = ({ authorName = '', people = [], readOnly = false, meI
   const monthItems = visible.filter(i => i.date.startsWith(monthKey));
   const monthPosts = monthItems.filter(isPostItem).length;
 
+  const renderItem = (it) => {
+              const c = catById.get(it.categoryId);
+              const color = c?.color || '#64748B';
+              const post = c?.kind === 'post';
+              const mine = isMine(it);
+              if (post) {
+                // POST: cartao compacto com aviaozinho e horario de postagem
+                return (
+                  <button key={it.id} onClick={() => openItem(it)}
+                    className={`w-full text-left rounded-xl border-[1.5px] border-dashed bg-transparent hover:bg-white/[0.04] transition-colors p-3 flex items-center gap-3 ${mine ? 'ring-2 ring-[var(--gvv-lime)]' : ''}`}
+                    style={{ borderColor: color }}>
+                    <div className="w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0" style={{ background: color, color: agInk(color) }}>
+                      <Send className="w-4 h-4" />
+                      {it.startTime && <span className="text-[10px] font-bold mt-0.5">{it.startTime}</span>}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: agTextColor(color) }}>{c?.name || 'Post'}</div>
+                      <div className="text-zinc-50 font-semibold truncate">{it.title}</div>
+                      {it.people.length > 0 && <div className="text-xs text-zinc-400 truncate mt-0.5">{it.people.map(p => agFirst(p.name)).join(', ')}</div>}
+                    </div>
+                    <AgPeopleDots people={it.people} max={3} size={22} />
+                  </button>
+                );
+              }
+              return (
+                <button key={it.id} onClick={() => openItem(it)}
+                  className={`w-full text-left rounded-xl border border-white/10 hover:border-white/20 bg-white/[0.03] hover:bg-white/[0.06] transition-colors p-3 pl-4 relative overflow-hidden ${mine ? 'ring-2 ring-[var(--gvv-lime)]' : ''}`}>
+                  <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: color }} />
+                  <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider" style={{ color: agTextColor(color) }}>
+                    {c?.name || 'Sem categoria'}
+                    {(it.startTime || it.endTime) && <span className="text-zinc-400 font-semibold normal-case tracking-normal flex items-center gap-1"><Clock className="w-3 h-3" />{it.startTime}{it.endTime ? `–${it.endTime}` : ''}</span>}
+                    {mine && <span className="ml-auto mm-lime-bg normal-case tracking-normal px-1.5 py-0.5 rounded-md text-[10px]">você</span>}
+                  </div>
+                  <div className="text-zinc-50 font-semibold mt-1">{it.title}</div>
+                  {it.description && <p className="text-sm text-zinc-400 mt-1 line-clamp-2 whitespace-pre-line">{it.description}</p>}
+                  {it.people.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {it.people.map(p => (
+                        <span key={p.id} className="inline-flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[11px] font-semibold text-zinc-200">
+                          <span className="mm-ava w-4 h-4 rounded-full flex items-center justify-center text-[8px]" style={avaStyle(p.name)}>{agInitials(p.name)}</span>{agFirst(p.name)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {(it.links.length > 0 || it.files.length > 0) && (
+                    <div className="flex gap-3 mt-2 text-xs text-zinc-400">
+                      {it.links.length > 0 && <span className="inline-flex items-center gap-1"><LinkIcon className="w-3 h-3" />{it.links.length} link{it.links.length > 1 ? 's' : ''}</span>}
+                      {it.files.length > 0 && <span className="inline-flex items-center gap-1"><Paperclip className="w-3 h-3" />{it.files.length} arquivo{it.files.length > 1 ? 's' : ''}</span>}
+                    </div>
+                  )}
+                </button>
+              );
+  };
+
   // Etiqueta do item no calendario (desktop): evento = bloco cheio; post = contorno com aviaozinho
   const Pill = ({ it, dayKey }) => {
     const c = colorOf(it);
@@ -7734,6 +7820,14 @@ const ContentAgendaView = ({ authorName = '', people = [], readOnly = false, meI
           {MONTH_NAMES[cursor.getMonth()]} <span className="text-[var(--gvv-blue)]">{cursor.getFullYear()}</span>
         </h2>
         <button onClick={goToday} className="mm-tap text-sm px-3 py-2 rounded-xl border border-white/12 hover:bg-white/8 text-zinc-200">Hoje</button>
+        <div className="inline-flex rounded-xl border border-white/12 p-0.5 bg-white/[0.03]">
+          {[['lista', 'Lista', ClipboardList], ['mes', 'Mês', Calendar]].map(([m, l, Ic]) => (
+            <button key={m} onClick={() => setMode(m)} aria-pressed={mode === m}
+              className={`mm-tap inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${mode === m ? 'bg-[var(--brand)] text-white' : 'text-zinc-300 hover:text-zinc-50'}`}>
+              <Ic className="w-4 h-4" /> {l}
+            </button>
+          ))}
+        </div>
         {!readOnly && (
           <div className="flex gap-2 ml-auto">
             <Button variant="secondary" onClick={() => setCatsOpen(true)}><Tag className="w-4 h-4" /> <span className="hidden sm:inline">Categorias</span></Button>
@@ -7790,6 +7884,37 @@ const ContentAgendaView = ({ authorName = '', people = [], readOnly = false, meI
         </div>
       </div>
 
+      {mode === 'lista' ? (
+        <div className="space-y-3">
+          {(() => {
+            const days = [...byDay.keys()].filter(k => k.startsWith(monthKey)).sort();
+            if (!days.length) {
+              return (
+                <div className="mm-card rounded-2xl p-8 text-center">
+                  <Calendar className="w-8 h-8 text-zinc-500 mx-auto" />
+                  <div className="text-zinc-200 font-semibold mt-3">Nada marcado em {MONTH_NAMES[cursor.getMonth()].toLowerCase()}</div>
+                  {!readOnly && <Button className="mt-4" onClick={() => newItem()}><Plus className="w-4 h-4" /> Adicionar o primeiro</Button>}
+                </div>
+              );
+            }
+            return days.map(k => {
+              const d = new Date(k + 'T12:00:00');
+              const past = k < today;
+              return (
+                <div key={k} className={`flex gap-3 sm:gap-4 ${past ? 'opacity-55' : ''}`}>
+                  <div className={`w-14 sm:w-16 flex-shrink-0 rounded-2xl text-center py-2 h-fit ${k === today ? 'mm-lime-bg' : 'bg-white/5 border border-white/10'}`}>
+                    <div className={`text-[10px] font-bold uppercase ${k === today ? '' : 'text-zinc-400'}`}>{k === today ? 'Hoje' : AG_WEEK[d.getDay()]}</div>
+                    <div className={`font-display text-3xl leading-none mt-0.5 ${k === today ? '' : 'text-zinc-50'}`}>{d.getDate()}</div>
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-2">
+                    {byDay.get(k).map(renderItem)}
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      ) : (
       <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
         {/* Calendario */}
         <div className="mm-card rounded-2xl overflow-hidden">
@@ -7859,63 +7984,13 @@ const ContentAgendaView = ({ authorName = '', people = [], readOnly = false, meI
                     Nada marcado nesse dia.<br /><span className="text-brand-300 font-medium">Toque para adicionar</span>
                   </button>
             )}
-            {selItems.map(it => {
-              const c = catById.get(it.categoryId);
-              const color = c?.color || '#64748B';
-              const post = c?.kind === 'post';
-              const mine = isMine(it);
-              if (post) {
-                // POST: cartao compacto com aviaozinho e horario de postagem
-                return (
-                  <button key={it.id} onClick={() => openItem(it)}
-                    className={`w-full text-left rounded-xl border-[1.5px] border-dashed bg-transparent hover:bg-white/[0.04] transition-colors p-3 flex items-center gap-3 ${mine ? 'ring-2 ring-[var(--gvv-lime)]' : ''}`}
-                    style={{ borderColor: color }}>
-                    <div className="w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0" style={{ background: color, color: agInk(color) }}>
-                      <Send className="w-4 h-4" />
-                      {it.startTime && <span className="text-[10px] font-bold mt-0.5">{it.startTime}</span>}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: agTextColor(color) }}>{c?.name || 'Post'}</div>
-                      <div className="text-zinc-50 font-semibold truncate">{it.title}</div>
-                      {it.people.length > 0 && <div className="text-xs text-zinc-400 truncate mt-0.5">{it.people.map(p => agFirst(p.name)).join(', ')}</div>}
-                    </div>
-                    <AgPeopleDots people={it.people} max={3} size={22} />
-                  </button>
-                );
-              }
-              return (
-                <button key={it.id} onClick={() => openItem(it)}
-                  className={`w-full text-left rounded-xl border border-white/10 hover:border-white/20 bg-white/[0.03] hover:bg-white/[0.06] transition-colors p-3 pl-4 relative overflow-hidden ${mine ? 'ring-2 ring-[var(--gvv-lime)]' : ''}`}>
-                  <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: color }} />
-                  <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider" style={{ color: agTextColor(color) }}>
-                    {c?.name || 'Sem categoria'}
-                    {(it.startTime || it.endTime) && <span className="text-zinc-400 font-semibold normal-case tracking-normal flex items-center gap-1"><Clock className="w-3 h-3" />{it.startTime}{it.endTime ? `–${it.endTime}` : ''}</span>}
-                    {mine && <span className="ml-auto mm-lime-bg normal-case tracking-normal px-1.5 py-0.5 rounded-md text-[10px]">você</span>}
-                  </div>
-                  <div className="text-zinc-50 font-semibold mt-1">{it.title}</div>
-                  {it.description && <p className="text-sm text-zinc-400 mt-1 line-clamp-2 whitespace-pre-line">{it.description}</p>}
-                  {it.people.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {it.people.map(p => (
-                        <span key={p.id} className="inline-flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[11px] font-semibold text-zinc-200">
-                          <span className="mm-ava w-4 h-4 rounded-full flex items-center justify-center text-[8px]" style={avaStyle(p.name)}>{agInitials(p.name)}</span>{agFirst(p.name)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {(it.links.length > 0 || it.files.length > 0) && (
-                    <div className="flex gap-3 mt-2 text-xs text-zinc-400">
-                      {it.links.length > 0 && <span className="inline-flex items-center gap-1"><LinkIcon className="w-3 h-3" />{it.links.length} link{it.links.length > 1 ? 's' : ''}</span>}
-                      {it.files.length > 0 && <span className="inline-flex items-center gap-1"><Paperclip className="w-3 h-3" />{it.files.length} arquivo{it.files.length > 1 ? 's' : ''}</span>}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
+            {selItems.map(renderItem)}
           </div>
           {!readOnly && <p className="hidden sm:block text-[11px] text-zinc-500 mt-4">Dica: dois cliques num dia do calendário já abre um item novo.</p>}
         </div>
       </div>
+
+      )}
 
       {editing && (
         <AgendaItemEditor item={editing} categories={categories} people={people} onClose={() => setEditing(null)} onSave={saveItem} onDelete={deleteItem} />
@@ -8007,9 +8082,15 @@ const AdminDashboard = ({ requests, departments, contents, admin, admins, aiStyl
     { group: 'Departamentos', id: 'departments', label: 'Departamentos', icon: Building2, badge: departments.length },
     { group: 'Departamentos', id: 'agenda', label: 'Agenda da igreja', icon: Calendar },
     { group: 'Comunicação', id: 'content-agenda', label: 'Agenda de conteúdo', shortLabel: 'Agenda', icon: Palette, tab: true },
-    { group: 'Comunicação', id: 'volunteers', label: 'Voluntários', shortLabel: 'Equipe', icon: Users, tab: true, badge: volunteers.filter(v => v.status === 'pendente').length || null },
+    { group: 'Comunicação', id: 'vol-mural', label: 'Mural de recados', shortLabel: 'Mural', icon: Megaphone },
     { group: 'Comunicação', id: 'uploads', label: 'Material recebido', shortLabel: 'Material', icon: Upload },
     { group: 'Comunicação', id: 'contents', label: 'Conteúdos publicados', shortLabel: 'Conteúdos', icon: FileText, badge: contents.length },
+    { group: 'Voluntários', id: 'vol-escalas', label: 'Escalas', shortLabel: 'Escalas', icon: Calendar, tab: true },
+    { group: 'Voluntários', id: 'vol-membros', label: 'Equipe', shortLabel: 'Equipe', icon: Users, badge: volunteers.filter(v => v.status === 'pendente').length || null },
+    { group: 'Voluntários', id: 'vol-solicitacoes', label: 'Pedidos de área', shortLabel: 'Pedidos', icon: Inbox, badge: areaRequests.filter(r => r.status === 'pendente').length || null },
+    { group: 'Voluntários', id: 'vol-frequencias', label: 'Frequência', icon: BarChart3 },
+    { group: 'Voluntários', id: 'vol-estudo', label: 'Estudo', icon: BookOpen },
+    { group: 'Voluntários', id: 'vol-forum', label: 'Fórum', icon: MessageSquare },
     { group: 'Sistema', id: 'config', label: 'Configurações', icon: Settings },
   ];
 
@@ -8326,8 +8407,12 @@ const AdminDashboard = ({ requests, departments, contents, admin, admins, aiStyl
         return <DepartmentsManager departments={departments} onAdd={onAddDepartment} onUpdate={onUpdateDepartment} onRemove={onRemoveDepartment} requests={requests} />;
 
       case 'volunteers':
+      case 'vol-membros': case 'vol-solicitacoes': case 'vol-escalas': case 'vol-frequencias':
+      case 'vol-mural': case 'vol-estudo': case 'vol-forum':
         return (
           <VolunteersManager
+            forcedTab={view.startsWith('vol-') ? view.slice(4) : null}
+            key={view}
             volunteers={volunteers}
             events={events}
             signups={signups}
@@ -12569,7 +12654,7 @@ const ForumBoard = ({ posts = [], currentUser, scopedAreas = null, viewerAreas =
 /* =====================================================================
    VOLUNTEERS MANAGER (Admin > Voluntários)
 ===================================================================== */
-const VolunteersManager = ({ volunteers, events = [], signups = [], feedbacks = [], announcements = [], areaRequests = [], admin, adminName, onUpdateVolunteer, onSetVolunteerStatus, onRemoveVolunteer, onInsertEvent, onNotifyEvent, onUpdateEvent, onDeleteEvent, onUpdateSignup, onDeleteSignup, onInsertFeedback, onInsertAnnouncement, onDeleteAnnouncement, onApproveAreaRequest, onRejectAreaRequest, onBroadcast, studyMaterials = [], forumPosts = [], onAddStudyMaterial, onUpdateStudyMaterial, onRemoveStudyMaterial, onPostForum, onDeleteForumPost, onInsertSignup, onBroadcastScale }) => {
+const VolunteersManager = ({ forcedTab = null, volunteers, events = [], signups = [], feedbacks = [], announcements = [], areaRequests = [], admin, adminName, onUpdateVolunteer, onSetVolunteerStatus, onRemoveVolunteer, onInsertEvent, onNotifyEvent, onUpdateEvent, onDeleteEvent, onUpdateSignup, onDeleteSignup, onInsertFeedback, onInsertAnnouncement, onDeleteAnnouncement, onApproveAreaRequest, onRejectAreaRequest, onBroadcast, studyMaterials = [], forumPosts = [], onAddStudyMaterial, onUpdateStudyMaterial, onRemoveStudyMaterial, onPostForum, onDeleteForumPost, onInsertSignup, onBroadcastScale }) => {
   const ask = useConfirm();
   const isCoordinator = admin?.role === 'coordinator';
   const coordAreas = isCoordinator ? (admin?.areas || []) : null;
@@ -12580,7 +12665,8 @@ const VolunteersManager = ({ volunteers, events = [], signups = [], feedbacks = 
   const visibleFeedbacks = isCoordinator ? feedbacks.filter(f => !f.area || coordAreas.includes(f.area)) : feedbacks;
   const visibleAreaRequests = isCoordinator ? areaRequests.filter(r => coordAreas.includes(r.area)) : areaRequests;
   const toast = useToast();
-  const [tab, setTab] = useState('membros'); // 'membros' | 'escalas' | 'frequencias'
+  const [tabState, setTab] = useState(forcedTab || 'membros');
+  const tab = forcedTab || tabState;
   const [statusFilter, setStatusFilter] = useState('all'); // default: mostra todos
   const [areaFilter, setAreaFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -12636,13 +12722,27 @@ const VolunteersManager = ({ volunteers, events = [], signups = [], feedbacks = 
 
   return (
     <div className="mm-fade-in">
-      <div className="mb-6">
-        <h2 className="font-serif text-3xl text-zinc-50 mb-1">Voluntários</h2>
-        <p className="text-zinc-300">Time de mídia — cadastros, escalas e desempenho.</p>
-      </div>
+      {(() => {
+        const H = {
+          membros: ['Equipe', 'Quem faz parte do time, aprovações e fichas.'],
+          solicitacoes: ['Pedidos de área', 'Voluntários pedindo pra entrar numa área nova.'],
+          escalas: ['Escalas', 'Cultos e quem serve em cada posto. Abra um culto e use “Montar escala automática”.'],
+          frequencias: ['Frequência', 'Quem está servindo mais e quem sumiu.'],
+          mural: ['Mural', 'Recados que aparecem no início dos voluntários.'],
+          estudo: ['Estudo', 'Materiais de treinamento por área.'],
+          forum: ['Fórum', 'Conversa da equipe.'],
+        }[tab] || ['Voluntários', 'Time de mídia — cadastros, escalas e desempenho.'];
+        return (
+          <div className="mb-6">
+            <div className="mm-eyebrow mb-1">Voluntários</div>
+            <h2 className="font-serif text-3xl text-zinc-50 mb-1">{H[0]}</h2>
+            <p className="text-zinc-300 text-sm">{H[1]}</p>
+          </div>
+        );
+      })()}
 
-      {/* Sub-abas */}
-      <div className="flex flex-wrap gap-2 mb-6 border-b border-white/10">
+      {/* Sub-abas (so quando nao vem da barra lateral) */}
+      {!forcedTab && <div className="flex flex-wrap gap-2 mb-6 border-b border-white/10">
         {[
           { id: 'membros',     label: 'Membros',       icon: Users,      badge: pendingCount > 0 ? pendingCount : null },
           { id: 'solicitacoes', label: 'Solicitações', icon: Inbox,      badge: pendingAreaReqCount > 0 ? pendingAreaReqCount : null },
@@ -12667,7 +12767,7 @@ const VolunteersManager = ({ volunteers, events = [], signups = [], feedbacks = 
             </button>
           );
         })}
-      </div>
+      </div>}
 
       {tab === 'membros' && (
         <div className="space-y-4">
