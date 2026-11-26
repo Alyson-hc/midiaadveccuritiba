@@ -32,7 +32,7 @@ Testar local sem build: `python3 -m http.server 5173` e abra
 ## Como funciona
 
 1. Departamento entra digitando nome no login
-2. Admin entra com `admin` e senha `1234.9`
+2. Admin entra com o usuário e a senha cadastrados em Configurações
 3. Tudo salva no Supabase, sincroniza em tempo real
 4. Upload até 50MB
 
@@ -50,7 +50,7 @@ Projeto novo, uma vez só:
 1. supabase.com → New project.
 2. SQL Editor → New query → cole **`supabase/SCHEMA_COMPLETO.sql`** inteiro → Run.
    Cria todas as tabelas, o bucket `media-files`, as policies, o tempo real,
-   os departamentos padrão e o admin (`admin` / `1234.9`, troque depois).
+   os departamentos padrão e o admin padrão (troque a senha depois).
 3. Project Settings → API → copie *Project URL* e a chave *anon public* para `config.js`.
 4. Atualização mais recente: rode também `SUPABASE_FASE10_VOLUNTARIOS_AGENDA.sql` (posts e responsáveis na agenda, troca de escala, material pós-culto). Já está dentro do SCHEMA_COMPLETO para projetos novos.
 5. (Opcional) Funções de IA e WhatsApp: publique `supabase/functions/*` no
@@ -76,7 +76,7 @@ e demais arquivos de desenvolvimento.
 
 ## Credenciais
 
-- Senha admin: `1234.9`
+- Senha admin: definida no banco (troque a padrão em Configurações logo no primeiro acesso)
 - Cada departamento tem senha própria. Padrão = nome do departamento
   (ignora acentos/maiúsculas). Departamento altera em *Configurações*; admin altera
   qualquer senha em *Departamentos → editar*.
