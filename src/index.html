@@ -10718,16 +10718,21 @@ const SchedulingCalendar = ({ events, signups = [], availability = [], mode = 'a
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
-  const firstDay = new Date(year, month, 1).getDay(); // 0=dom
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
   const todayStr = YYYYMMDD(new Date());
 
-  const cells = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < firstDay; i++) arr.push(null);
-    for (let d = 1; d <= daysInMonth; d++) arr.push(YYYYMMDD(new Date(year, month, d)));
-    return arr;
-  }, [firstDay, daysInMonth, year, month]);
+  // Semanas completas (domingo a sabado), com os dias vizinhos apagados
+  const weeks = useMemo(() => {
+    const first = new Date(year, month, 1);
+    const start = new Date(first); start.setDate(1 - first.getDay());
+    const out = [];
+    for (let w = 0; w < 6; w++) {
+      const row = [];
+      for (let d = 0; d < 7; d++) { const x = new Date(start); x.setDate(start.getDate() + w * 7 + d); row.push(x); }
+      if (w >= 4 && row[0].getMonth() !== month) break;
+      out.push(row);
+    }
+    return out;
+  }, [year, month]);
 
   const eventsByDay = useMemo(() => {
     const map = {};
@@ -10740,85 +10745,177 @@ const SchedulingCalendar = ({ events, signups = [], availability = [], mode = 'a
     return new Set(availability.filter(a => a.volunteerId === volunteerId).map(a => a.day));
   }, [availability, volunteerId]);
 
+  // Quantos postos o culto precisa e quantos ja estao preenchidos
+  const fillOf = (ev) => {
+    const evS = signups.filter(s => s.eventId === ev.id && s.status === 'confirmado');
+    const roles = ev.rolesNeeded || [];
+    if (roles.length) return { have: roles.filter(r => evS.some(s => s.role === r)).length, need: roles.length };
+    const areas = ev.areasNeeded || [];
+    return { have: areas.filter(a => evS.some(s => s.area === a)).length, need: areas.length };
+  };
+  const tone = ({ have, need }) => need === 0 ? 'none' : have >= need ? 'full' : have === 0 ? 'empty' : 'part';
+  const TONE = {
+    full:  { bar: 'bg-emerald-500', dot: 'bg-emerald-500', label: 'Completa' },
+    part:  { bar: 'bg-amber-400',   dot: 'bg-amber-400',   label: 'Faltando gente' },
+    empty: { bar: 'bg-rose-500',    dot: 'bg-rose-500',    label: 'Ninguém ainda' },
+    none:  { bar: 'bg-zinc-500',    dot: 'bg-zinc-500',    label: 'Sem postos' },
+  };
+
+  // Resumo do mes
+  const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const monthEvents = events.filter(e => e.date.startsWith(monthKey));
+  const stats = monthEvents.reduce((acc, ev) => {
+    const f = fillOf(ev); const t = tone(f);
+    acc.total++; if (t === 'full') acc.full++; acc.open += Math.max(0, f.need - f.have);
+    return acc;
+  }, { total: 0, full: 0, open: 0 });
+
   const goPrev = () => setCursor(new Date(year, month - 1, 1));
   const goNext = () => setCursor(new Date(year, month + 1, 1));
   const goToday = () => { const t = new Date(); setCursor(new Date(t.getFullYear(), t.getMonth(), 1)); };
 
   return (
-    <div className="mm-card rounded-2xl backdrop-blur-xl bg-zinc-950/60 overflow-hidden">
-      <div className="flex items-center justify-between p-4 border-b border-white/10">
-        <div className="flex items-center gap-2">
-          <button onClick={goPrev} className="w-8 h-8 rounded-lg border border-white/10 hover:bg-white/5 flex items-center justify-center text-zinc-300"><ChevronRight className="w-4 h-4 rotate-180" /></button>
-          <button onClick={goToday} className="text-xs px-2.5 py-1 rounded-md border border-white/10 hover:bg-white/5 text-zinc-300">Hoje</button>
-          <button onClick={goNext} className="w-8 h-8 rounded-lg border border-white/10 hover:bg-white/5 flex items-center justify-center text-zinc-300"><ChevronRight className="w-4 h-4" /></button>
-        </div>
-        <h3 className="font-serif text-lg text-zinc-50">{SCH_MONTH_NAMES[month]} <span className="text-zinc-400">{year}</span></h3>
-        {mode === 'admin' ? (
-          <Button size="sm" onClick={() => onDayClick && onDayClick(todayStr)}><Plus className="w-3.5 h-3.5" /> Novo</Button>
-        ) : <div className="w-16" />}
-      </div>
-
-      <div className="grid grid-cols-7 text-center text-[10px] uppercase tracking-wider text-zinc-500 border-b border-white/10">
-        {SCH_WEEK_DAYS.map(w => <div key={w} className="py-2">{w}</div>)}
-      </div>
-
-      <div className="grid grid-cols-7">
-        {cells.map((day, idx) => {
-          if (!day) return <div key={idx} className="min-h-[90px] border-b border-r border-white/5 bg-white/[0.01]" />;
-          const dayEvents = eventsByDay[day] || [];
-          const isToday = day === todayStr;
-          const isPast = day < todayStr;
-          const isAvailable = availableSet.has(day);
-          return (
-            <div
-              key={idx}
-              onClick={() => {
-                if (mode === 'admin' && onDayClick) onDayClick(day);
-                if (mode === 'volunteer' && onToggleAvailability && dayEvents.length === 0 && !isPast) onToggleAvailability(day, !isAvailable);
-              }}
-              className={`min-h-[90px] border-b border-r border-white/5 p-1.5 cursor-pointer transition-colors ${isToday ? 'bg-brand-400/8' : 'hover:bg-white/[0.03]'} ${isPast ? 'opacity-60' : ''} ${isAvailable ? 'bg-emerald-400/8' : ''}`}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className={`text-xs font-medium ${isToday ? 'text-brand-200' : 'text-zinc-300'}`}>{parseInt(day.slice(-2), 10)}</span>
-                {mode === 'volunteer' && isAvailable && dayEvents.length === 0 && (
-                  <span className="text-[9px] uppercase tracking-wider text-emerald-200">Livre</span>
-                )}
-              </div>
-              <div className="space-y-1">
-                {dayEvents.slice(0, 3).map(ev => {
-                  const evSignups = signups.filter(s => s.eventId === ev.id);
-                  const confirmed = evSignups.filter(s => s.status === 'confirmado').length;
-                  const needed = (ev.areasNeeded || []).length;
-                  return (
-                    <button
-                      key={ev.id}
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); onEventClick && onEventClick(ev); }}
-                      className="w-full text-left px-1.5 py-1 rounded-md bg-gradient-to-r from-fuchsia-500/20 to-brand-500/15 border border-fuchsia-400/30 hover:border-fuchsia-400/60 text-[11px] text-zinc-50 truncate transition-colors"
-                    >
-                      <div className="font-medium truncate">{ev.title}</div>
-                      {needed > 0 && (
-                        <div className="text-[9px] text-fuchsia-100/80">{confirmed}/{needed} escalados</div>
-                      )}
-                    </button>
-                  );
-                })}
-                {dayEvents.length > 3 && (
-                  <div className="text-[10px] text-zinc-400 px-1">+{dayEvents.length - 3} evento(s)</div>
-                )}
+    <div className="space-y-4">
+      {/* Resumo */}
+      {mode === 'admin' && (
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          {[
+            { n: stats.total, l: 'cultos no mês', ic: Calendar, cls: 'text-zinc-50' },
+            { n: stats.full, l: 'escalas completas', ic: Check, cls: 'text-emerald-400' },
+            { n: stats.open, l: 'vagas em aberto', ic: Users, cls: stats.open ? 'text-amber-400' : 'text-zinc-50' },
+          ].map(s => (
+            <div key={s.l} className="mm-card rounded-2xl p-3 sm:p-4 flex items-center gap-3">
+              <div className="hidden sm:flex w-10 h-10 rounded-xl bg-white/5 items-center justify-center flex-shrink-0"><s.ic className={`w-5 h-5 ${s.cls}`} /></div>
+              <div className="min-w-0">
+                <div className={`font-display text-2xl sm:text-3xl leading-none ${s.cls}`}>{s.n}</div>
+                <div className="text-[11px] text-zinc-400 mt-1 leading-tight">{s.l}</div>
               </div>
             </div>
-          );
-        })}
-      </div>
-
-      {mode === 'volunteer' && (
-        <div className="p-3 border-t border-white/10 text-[11px] text-zinc-400 flex items-center gap-4 flex-wrap">
-          <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-400/25 border border-emerald-400/40" /> disponível</span>
-          <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gradient-to-r from-fuchsia-500/40 to-brand-500/30 border border-fuchsia-400/50" /> tem escala</span>
-          <span className="text-zinc-500">Clique num dia livre para marcar disponibilidade.</span>
+          ))}
         </div>
       )}
+
+      <div className="mm-card rounded-2xl overflow-hidden">
+        {/* Cabecalho do mes */}
+        <div className="flex items-center gap-3 px-4 sm:px-5 py-4">
+          <h3 className="font-serif text-3xl sm:text-4xl text-zinc-50 leading-none">
+            {SCH_MONTH_NAMES[month]} <span className="text-[var(--gvv-blue)]">{year}</span>
+          </h3>
+          <div className="flex items-center gap-1 ml-auto">
+            <button onClick={goToday} className="mm-tap text-sm px-3 py-2 rounded-xl border border-white/12 hover:bg-white/8 text-zinc-200">Hoje</button>
+            <button onClick={goPrev} aria-label="Mês anterior" className="mm-tap w-10 h-10 rounded-xl border border-white/12 hover:bg-white/8 flex items-center justify-center text-zinc-200"><ChevronLeft className="w-5 h-5" /></button>
+            <button onClick={goNext} aria-label="Próximo mês" className="mm-tap w-10 h-10 rounded-xl border border-white/12 hover:bg-white/8 flex items-center justify-center text-zinc-200"><ChevronRight className="w-5 h-5" /></button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-7 border-y border-white/8 bg-white/[0.02]">
+          {SCH_WEEK_DAYS.map((w, i) => (
+            <div key={w} className={`py-2 text-center text-[11px] font-bold uppercase tracking-wider ${i === 0 || i === 6 ? 'text-zinc-400' : 'text-zinc-500'}`}>{w}</div>
+          ))}
+        </div>
+
+        <div>
+          {weeks.map((row, wi) => (
+            <div key={wi} className="grid grid-cols-7">
+              {row.map((dt, di) => {
+                const day = YYYYMMDD(dt);
+                const inMonth = dt.getMonth() === month;
+                const dayEvents = eventsByDay[day] || [];
+                const isToday = day === todayStr;
+                const isPast = day < todayStr;
+                const isAvailable = availableSet.has(day);
+                const weekend = di === 0 || di === 6;
+                return (
+                  <div
+                    key={day}
+                    onClick={() => {
+                      if (!inMonth) return;
+                      if (mode === 'admin' && onDayClick) onDayClick(day);
+                      if (mode === 'volunteer' && onToggleAvailability && dayEvents.length === 0 && !isPast) onToggleAvailability(day, !isAvailable);
+                    }}
+                    className={`group relative min-h-[72px] sm:min-h-[118px] p-1 sm:p-2 border-b border-r border-white/[0.06] transition-colors
+                      ${inMonth ? 'cursor-pointer hover:bg-white/[0.035]' : 'opacity-30 pointer-events-none'}
+                      ${weekend && inMonth ? 'bg-white/[0.015]' : ''}
+                      ${isAvailable && inMonth ? 'bg-emerald-500/[0.08]' : ''}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[13px] font-semibold
+                        ${isToday ? 'mm-lime-bg' : isPast ? 'text-zinc-500' : 'text-zinc-200'}`}>{dt.getDate()}</span>
+                      {mode === 'admin' && inMonth && !isPast && (
+                        <span className="hidden sm:flex w-6 h-6 rounded-lg items-center justify-center text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity bg-white/5">
+                          <Plus className="w-3.5 h-3.5" />
+                        </span>
+                      )}
+                      {mode === 'volunteer' && isAvailable && dayEvents.length === 0 && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400">livre</span>
+                      )}
+                    </div>
+
+                    {/* celular: bolinhas com a cor do status */}
+                    <div className="sm:hidden flex flex-wrap gap-1 mt-1 px-0.5">
+                      {dayEvents.slice(0, 4).map(ev => (
+                        <button key={ev.id} type="button" onClick={(e) => { e.stopPropagation(); onEventClick && onEventClick(ev); }}
+                          className={`w-2.5 h-2.5 rounded-full ${TONE[tone(fillOf(ev))].dot}`} aria-label={ev.title} />
+                      ))}
+                    </div>
+
+                    {/* desktop: cartao do culto com barra de preenchimento */}
+                    <div className="hidden sm:block space-y-1.5 mt-1">
+                      {dayEvents.slice(0, 2).map(ev => {
+                        const f = fillOf(ev); const t = TONE[tone(f)];
+                        const pct = f.need ? Math.round((f.have / f.need) * 100) : 0;
+                        return (
+                          <button
+                            key={ev.id}
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onEventClick && onEventClick(ev); }}
+                            title={`${ev.title} · ${t.label}`}
+                            className={`w-full text-left rounded-lg px-2 py-1.5 transition-all hover:-translate-y-px hover:shadow-[var(--shadow-md)]
+                              ${ev.isTraining ? 'bg-emerald-500/12 border border-emerald-400/30' : 'bg-[var(--brand)]/15 border border-[var(--brand-line)]'}`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${t.dot}`} />
+                              <span className="text-[11px] font-semibold text-zinc-50 truncate">{ev.title}</span>
+                            </div>
+                            {f.need > 0 && (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <div className="flex-1 h-1 rounded-full bg-black/30 overflow-hidden">
+                                  <div className={`h-full ${t.bar}`} style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="text-[9px] font-bold text-zinc-300 tabular-nums">{f.have}/{f.need}</span>
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                      {dayEvents.length > 2 && <div className="text-[10px] text-zinc-400 px-1">+{dayEvents.length - 2} culto(s)</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* Legenda */}
+        <div className="px-4 sm:px-5 py-3 border-t border-white/8 text-[11px] text-zinc-400 flex items-center gap-x-4 gap-y-1.5 flex-wrap">
+          {mode === 'admin' ? (
+            <>
+              {['full', 'part', 'empty'].map(k => (
+                <span key={k} className="inline-flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${TONE[k].dot}`} /> {TONE[k].label}</span>
+              ))}
+              <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400/60 ring-1 ring-emerald-400" /> Treinamento</span>
+              <span className="text-zinc-500 sm:ml-auto">Toque num dia pra criar um culto</span>
+            </>
+          ) : (
+            <>
+              <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500/25 border border-emerald-400/50" /> disponível</span>
+              <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[var(--brand)]/30 border border-[var(--brand-line)]" /> tem escala</span>
+              <span className="text-zinc-500">Toque num dia livre pra marcar que pode servir.</span>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
@@ -12899,11 +12996,11 @@ const VolunteersManager = ({ forcedTab = null, volunteers, events = [], signups 
 
       {tab === 'escalas' && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <p className="text-sm text-zinc-400">
-              Clique num dia para criar um evento, ou num evento pra ver candidatos.
-            </p>
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button onClick={() => setEventEditor({ dateHint: YYYYMMDD(new Date()) })}>
+              <Plus className="w-4 h-4" /> Novo culto
+            </Button>
+            <div className="flex items-center gap-2 flex-wrap ml-auto">
               <button
                 onClick={() => setShowPastEvents(v => !v)}
                 className={`text-xs px-3 py-1.5 rounded-lg border transition-all inline-flex items-center gap-1.5 ${showPastEvents ? 'border-emerald-400/40 bg-emerald-500/12 text-emerald-500' : 'border-white/12 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.08]'}`}
@@ -12936,14 +13033,11 @@ const VolunteersManager = ({ forcedTab = null, volunteers, events = [], signups 
                   for (const s of sInMonth) { try { await onDeleteSignup(s.id); done++; } catch {} }
                   toast.success(`Escalas do mês resetadas (${done} de ${sInMonth.length}).`);
                 }}
-                className="text-xs px-3 py-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all inline-flex items-center gap-1.5"
+                className="text-xs px-3 py-2 rounded-xl text-zinc-500 hover:text-rose-500 hover:bg-rose-500/10 transition-all inline-flex items-center gap-1.5"
                 title="Remove todas as candidaturas dos eventos do mês atual"
               >
-                <Trash2 className="w-3.5 h-3.5" /> Resetar escalas do mês
+                <Trash2 className="w-3.5 h-3.5" /> Limpar mês
               </button>
-              <Button size="sm" onClick={() => setEventEditor({ dateHint: YYYYMMDD(new Date()) })}>
-                <Plus className="w-3.5 h-3.5" /> Novo evento
-              </Button>
             </div>
           </div>
           <SchedulingCalendar
