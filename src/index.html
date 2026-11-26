@@ -311,7 +311,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
-  Database, AlertTriangle, ChevronLeft, Palette, Tag, Pencil, RefreshCw, CalendarPlus, UserCheck, ImagePlus, LogOut, Plus, FileText, Send, Inbox, Download, Settings,
+  Database, AlertTriangle, Hand, ChevronLeft, Palette, Tag, Pencil, RefreshCw, CalendarPlus, UserCheck, ImagePlus, LogOut, Plus, FileText, Send, Inbox, Download, Settings,
   Users, BarChart3, Search, Filter, X, Check, Clock,
   AlertCircle, Eye, Edit2, Trash2, Upload, Link as LinkIcon,
   Calendar, MapPin, Phone, User, MessageSquare, Image as ImageIcon,
@@ -10491,6 +10491,30 @@ const VolunteerDashboard = ({ volunteer, volunteers = [], events = [], signups =
                                     )}
                                   </div>
                                   {isMe && <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-emerald-200 font-semibold flex-shrink-0">Seu posto</span>}
+                                  {!rvol && (() => {
+                                    // Voluntario pede o posto; admin aprova. So aparece se ele estiver liberado nele.
+                                    const mine = evSignups.find(s => s.role === r && s.volunteerId === volunteer.id && s.status !== 'recusado');
+                                    const can = (volunteer.qualifiedRoles || []).includes(r);
+                                    if (mine) return (
+                                      <button type="button" onClick={async () => { try { await onDeleteSignup(mine.id); toast.info('Pedido cancelado.'); } catch {} }}
+                                        className="mm-tap text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-amber-400/15 text-amber-500 border border-amber-400/40 flex-shrink-0" title="Toque pra cancelar">
+                                        Pedido enviado ✕
+                                      </button>
+                                    );
+                                    if (!can) return <span className="text-[10px] text-zinc-500 flex-shrink-0 inline-flex items-center gap-1" title="A liderança libera os postos que você já treinou"><Lock className="w-3 h-3" /> não liberado</span>;
+                                    return (
+                                      <button type="button"
+                                        onClick={async () => {
+                                          try {
+                                            await onInsertSignup({ eventId: event.id, volunteerId: volunteer.id, area: rm.area || (volunteer.areas || [])[0], role: r, status: 'proposto' });
+                                            toast.success(`Pedido enviado pra ${rm.label}. O admin confirma.`);
+                                          } catch {}
+                                        }}
+                                        className="mm-tap text-[11px] font-bold px-2.5 py-1.5 rounded-lg mm-lime-bg flex-shrink-0 inline-flex items-center gap-1">
+                                        <Hand className="w-3.5 h-3.5" /> Quero
+                                      </button>
+                                    );
+                                  })()}
                                 </div>
                               );
                             })}
@@ -11554,7 +11578,7 @@ const ScaleBroadcastModal = ({ event, message, signups, volunteers, onClose, onS
   );
 };
 
-const EventDetailPanel = ({ event, signups, volunteers, feedbacks = [], events = [], onEdit, onClose, onInsertSignup, onUpdateSignup, onDeleteSignup, onFeedback, onNotifyEvent, onBroadcastScale }) => {
+const EventDetailPanel = ({ event, signups, volunteers, feedbacks = [], events = [], onUpdateVolunteer, onEdit, onClose, onInsertSignup, onUpdateSignup, onDeleteSignup, onFeedback, onNotifyEvent, onBroadcastScale }) => {
   const ask = useConfirm();
   const isPast = event.date < YYYYMMDD(new Date());
   const toast = useToast();
@@ -11613,11 +11637,22 @@ const EventDetailPanel = ({ event, signups, volunteers, feedbacks = [], events =
       ...v,
       busyHere: evSignups.some(s => s.volunteerId === v.id && s.role && s.role !== role && s.status === 'confirmado'),
       available: availIds.has(v.id),
+      requested: evSignups.some(s => s.role === role && s.volunteerId === v.id && s.status === 'proposto'),
       monthLoad: loadOf.get(v.id) || 0,
       avg: avgOf(v.id),
       score: scoreOf(v, role),
     }))
-    .sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name));
+    .sort((a, b) => (b.requested - a.requested) || (b.score - a.score) || a.name.localeCompare(b.name));
+  // Quem e da area do posto mas ainda nao foi liberado nele
+  const notQualifiedFor = (role) => volunteers.filter(v => v.status === 'ativo' && !(v.qualifiedRoles || []).includes(role) && (v.areas || []).includes(ROLE_META[role]?.area));
+  const releaseAndAssign = async (role, v) => {
+    if (!onUpdateVolunteer) return;
+    try {
+      await onUpdateVolunteer({ ...v, qualifiedRoles: [...new Set([...(v.qualifiedRoles || []), role])] });
+      await assignRole(role, v);
+    } catch (e) { toast.error(e?.message || 'Erro ao liberar'); }
+  };
+  const requestsFor = (role) => evSignups.filter(s => s.role === role && s.status === 'proposto');
 
   // Monta sugestao pra todos os postos vagos sem repetir pessoa
   const [autoPlan, setAutoPlan] = useState(null); // [{ role, vol, why }]
@@ -11661,16 +11696,23 @@ const EventDetailPanel = ({ event, signups, volunteers, feedbacks = [], events =
     if (!onInsertSignup) { toast.error('Não foi possível escalar.'); return; }
     setBusyRole(role);
     try {
-      // Se já tinha alguém nesse posto, tira antes
-      const prev = evSignups.find(s => s.role === role);
-      if (prev) { try { await onDeleteSignup(prev.id); } catch {} }
-      await onInsertSignup({
+      // Se já tinha alguém confirmado nesse posto, tira antes
+      const prev = evSignups.find(s => s.role === role && s.status === 'confirmado');
+      if (prev && prev.volunteerId !== volunteer.id) { try { await onDeleteSignup(prev.id); } catch {} }
+      // Se a pessoa tinha pedido esse posto, so confirma o pedido
+      const req = evSignups.find(s => s.role === role && s.volunteerId === volunteer.id && s.status !== 'confirmado');
+      if (req) await onUpdateSignup({ ...req, status: 'confirmado' });
+      else await onInsertSignup({
         eventId: event.id,
         volunteerId: volunteer.id,
         area: ROLE_META[role]?.area || (volunteer.areas || [])[0] || 'video',
         role,
         status: 'confirmado',
       });
+      // os outros pedidos desse posto ficam como recusados
+      for (const o of evSignups.filter(s => s.role === role && s.status === 'proposto' && s.volunteerId !== volunteer.id)) {
+        try { await onUpdateSignup({ ...o, status: 'recusado' }); } catch {}
+      }
       toast.success(`${volunteer.name} escalado em ${ROLE_META[role]?.label || role}.`);
       setAssigning(null);
     } catch (e) { toast.error(e?.message || 'Erro ao escalar'); }
@@ -11894,11 +11936,22 @@ const EventDetailPanel = ({ event, signups, volunteers, feedbacks = [], events =
                         ) : (
                           <button onClick={() => setAssigning(isOpen ? null : role)} disabled={busy}
                             className="text-xs text-zinc-500 hover:text-brand-200 inline-flex items-center gap-1.5 border border-dashed border-white/15 hover:border-brand-400/40 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50">
-                            <Plus className="w-3 h-3" /> Vaga aberta
+                            {requestsFor(role).length > 0
+                              ? <><Hand className="w-3 h-3 text-[var(--lime-ink)]" /> <b className="text-zinc-100">{requestsFor(role).length} pedido{requestsFor(role).length > 1 ? 's' : ''}</b> · escolher</>
+                              : <><Plus className="w-3 h-3" /> Vaga aberta</>}
                           </button>
                         )}
                       </div>
 
+                      {!vol && requestsFor(role).length === 1 && (() => {
+                        const rq = requestsFor(role)[0]; const rv = volunteers.find(v => v.id === rq.volunteerId);
+                        return rv ? (
+                          <button onClick={() => assignRole(role, rv)} disabled={busy}
+                            className="mm-tap text-[11px] font-bold px-2.5 py-1.5 rounded-lg mm-lime-bg flex-shrink-0 inline-flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5" /> Aprovar {agFirst(rv.name)}
+                          </button>
+                        ) : null;
+                      })()}
                       {/* Ações */}
                       <div className="flex items-center gap-1 flex-shrink-0">
                         {vol && (
@@ -11932,6 +11985,7 @@ const EventDetailPanel = ({ event, signups, volunteers, feedbacks = [], events =
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-[13px] text-zinc-100 truncate">{c.name}</span>
                                   <span className="flex items-center gap-1.5 text-[10px] text-zinc-500 mt-0.5">
+                                    {c.requested && <span className="font-bold px-1 rounded mm-lime-bg">pediu</span>}
                                     {c.available && <span className="font-bold mm-lime">● disponível</span>}
                                     <span>{c.monthLoad} no mês</span>
                                     {c.avg != null && <span>★ {c.avg.toFixed(1)}</span>}
@@ -11940,6 +11994,21 @@ const EventDetailPanel = ({ event, signups, volunteers, feedbacks = [], events =
                                 {c.busyHere && <span className="text-[9px] uppercase tracking-wider text-brand-300/80 flex-shrink-0">já escalado</span>}
                               </button>
                             ))}
+                          </div>
+                        )}
+                        {onUpdateVolunteer && notQualifiedFor(role).length > 0 && (
+                          <div className="mt-3">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-1.5">Da área, mas ainda não liberados em {meta.label}</div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {notQualifiedFor(role).map(v => (
+                                <button key={v.id} onClick={() => releaseAndAssign(role, v)} disabled={busy}
+                                  className="flex items-center gap-2 rounded-lg border border-dashed border-white/15 hover:border-[var(--gvv-lime)] px-2.5 py-2 text-left">
+                                  <div style={avaStyle(v.name)} className="w-7 h-7 rounded-full mm-ava flex items-center justify-center text-[11px] flex-shrink-0">{(v.name[0] || '?').toUpperCase()}</div>
+                                  <span className="text-[13px] text-zinc-300 truncate flex-1">{v.name}</span>
+                                  <span className="text-[10px] font-bold mm-lime flex-shrink-0">Liberar e escalar</span>
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         )}
                         <button onClick={() => setAssigning(null)} className="text-[11px] text-zinc-500 hover:text-zinc-300 mt-2">Cancelar</button>
@@ -13285,6 +13354,7 @@ const VolunteersManager = ({ forcedTab = null, volunteers, events = [], signups 
           volunteers={volunteers}
           feedbacks={feedbacks}
           events={events}
+          onUpdateVolunteer={onUpdateVolunteer}
           onEdit={() => { setEventEditor({ event: events.find(e => e.id === eventDetail.id) || eventDetail }); setEventDetail(null); }}
           onClose={() => setEventDetail(null)}
           onInsertSignup={onInsertSignup}
