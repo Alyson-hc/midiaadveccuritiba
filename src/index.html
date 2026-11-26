@@ -10994,6 +10994,15 @@ const SchedulingCalendar = ({ events, signups = [], availability = [], mode = 'a
 /* =====================================================================
    EVENT EDITOR (admin) — cria/edita eventos da escala
 ===================================================================== */
+// Modelos rapidos de culto: preenchem nome e postos de uma vez
+const EVENT_TEMPLATES = [
+  { id: 'dom-noite', label: 'Domingo · Noite', title: 'Culto de Domingo · Noite', weekday: 0, roles: ['telao', 'corte', 'transmissao', 'letra', 'camera1', 'camera2'], areas: ['fotografia', 'storys'] },
+  { id: 'dom-manha', label: 'Domingo · Manhã', title: 'Culto de Domingo · Manhã', weekday: 0, roles: ['telao', 'transmissao', 'letra', 'camera1'], areas: ['fotografia'] },
+  { id: 'quinta', label: 'Quinta da Vitória', title: 'Quinta da Vitória', weekday: 4, roles: ['telao', 'corte', 'letra'], areas: ['storys'] },
+  { id: 'especial', label: 'Evento especial', title: '', weekday: null, roles: [], areas: ['video', 'fotografia', 'storys'] },
+];
+const nextWeekday = (wd) => { const d = new Date(); const add = (wd - d.getDay() + 7) % 7 || 7; d.setDate(d.getDate() + add); return YYYYMMDD(d); };
+
 const EventEditor = ({ event, dateHint, onClose, onSave, onDelete }) => {
   const ask = useConfirm();
   const isNew = !event;
@@ -11008,20 +11017,33 @@ const EventEditor = ({ event, dateHint, onClose, onSave, onDelete }) => {
   const [trainingStage, setTrainingStage] = useState(event?.trainingStage || 1);
   const [minRating, setMinRating] = useState(Number(event?.minRating || 0));
   const [saving, setSaving] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(!!(event?.notes || Number(event?.minRating || 0) > 0));
+  const [tpl, setTpl] = useState(null);
   const toast = useToast();
 
-  const toggle = (a) => setAreasNeeded(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a]);
+  // Postos marcados ja trazem a area deles junto (telao -> video etc.)
+  const roleAreas = [...new Set(rolesNeeded.map(r => ROLE_META[r]?.area).filter(Boolean))];
+  const allAreas = [...new Set([...areasNeeded, ...roleAreas])];
+  const toggleArea = (a) => setAreasNeeded(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a]);
+  const toggleRole = (r) => setRolesNeeded(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r]);
+  const applyTemplate = (t) => {
+    setTpl(t.id);
+    if (t.title) setTitle(t.title);
+    setRolesNeeded(t.roles);
+    setAreasNeeded(t.areas);
+    if (isNew && t.weekday != null) setDate(nextWeekday(t.weekday));
+  };
 
   const save = async () => {
-    if (!title.trim()) { toast.error('Coloque um título/evento.'); return; }
+    if (!title.trim()) { toast.error('Dê um nome pro culto.'); return; }
     if (!date) { toast.error('Escolha a data.'); return; }
+    if (!isTraining && rolesNeeded.length === 0 && allAreas.length === 0) { toast.error('Marque pelo menos um posto ou área.'); return; }
     setSaving(true);
     try {
-      // guarda recado só das áreas ainda selecionadas
       const cleanNotes = {};
-      areasNeeded.forEach(a => { if ((areaNotes[a] || '').trim()) cleanNotes[a] = areaNotes[a].trim(); });
+      allAreas.forEach(a => { if ((areaNotes[a] || '').trim()) cleanNotes[a] = areaNotes[a].trim(); });
       await onSave({
-        ...(event || {}), date, title, contentIdea, notes, areasNeeded, rolesNeeded, areaNotes: cleanNotes,
+        ...(event || {}), date, title: title.trim(), contentIdea, notes, areasNeeded: allAreas, rolesNeeded, areaNotes: cleanNotes,
         isTraining, trainingStage: isTraining ? trainingStage : null,
         minRating: isTraining ? 0 : minRating,
       });
@@ -11033,169 +11055,184 @@ const EventEditor = ({ event, dateHint, onClose, onSave, onDelete }) => {
 
   const del = async () => {
     if (!await ask({
-      title: 'Excluir esse evento?',
+      title: 'Excluir esse culto?',
       message: 'A escala inteira dele se perde.',
-      details: ['Todos os voluntários candidatos são desescalados', 'Quem já foi avisado no WhatsApp não recebe correção automática'],
-      danger: true, confirmLabel: 'Excluir evento',
+      details: ['Todos os voluntários escalados saem da escala', 'Quem já foi avisado no WhatsApp não recebe correção automática'],
+      danger: true, confirmLabel: 'Excluir culto',
     })) return;
     try { await onDelete(event.id); onClose(); }
     catch (e) { toast.error(e?.message || 'Erro ao excluir.'); }
   };
 
+  const d = date ? new Date(date + 'T12:00:00') : null;
+  const Step = ({ n, title: t, hint, children }) => (
+    <section className="space-y-3">
+      <div className="flex items-center gap-3">
+        <span className="w-7 h-7 rounded-full bg-[var(--brand)] text-white text-sm font-bold flex items-center justify-center flex-shrink-0">{n}</span>
+        <div>
+          <h4 className="text-[15px] font-semibold text-zinc-50 leading-tight">{t}</h4>
+          {hint && <p className="text-xs text-zinc-500">{hint}</p>}
+        </div>
+      </div>
+      <div className="pl-0 sm:pl-10">{children}</div>
+    </section>
+  );
+  const rolesByArea = VOLUNTEER_AREAS.map(a => ({ area: a, roles: MEDIA_ROLES.filter(r => r.area === a.value) })).filter(g => g.roles.length);
+  const areasNoRoles = VOLUNTEER_AREAS.filter(a => !MEDIA_ROLES.some(r => r.area === a.value));
+
   return (
     <Modal open onClose={onClose} size="lg">
-      <div className="p-6 md:p-7 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-serif text-xl text-zinc-50">{isNew ? 'Novo evento' : 'Editar evento'}</h3>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200"><X className="w-4 h-4" /></button>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-zinc-300 uppercase tracking-wider mb-1.5">Data</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mm-input w-full rounded-lg px-3 py-2.5 text-sm" />
+      <div className="flex flex-col max-h-[92dvh] sm:max-h-[88dvh]">
+        {/* Cabecalho */}
+        <div className="flex items-start gap-4 px-5 sm:px-7 pt-5 sm:pt-6 pb-4 border-b border-white/8">
+          {d && (
+            <div className="rounded-2xl bg-white text-black w-16 text-center overflow-hidden flex-shrink-0 shadow-lg">
+              <div className="text-[10px] font-bold uppercase py-0.5" style={{ background: 'var(--gvv-lime)' }}>{AG_WEEK[d.getDay()]}</div>
+              <div className="font-display text-3xl leading-none py-1">{d.getDate()}</div>
+              <div className="text-[10px] font-bold uppercase text-zinc-500 pb-1">{MONTH_NAMES[d.getMonth()].slice(0, 3)}</div>
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="mm-eyebrow">{isNew ? 'Lançar escala' : 'Editar escala'}</p>
+            <h3 className="font-serif text-2xl sm:text-3xl text-zinc-50 truncate">{title || (isNew ? 'Novo culto' : 'Sem nome')}</h3>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              {isTraining ? `Treinamento · etapa ${trainingStage}` : `${rolesNeeded.length} posto${rolesNeeded.length === 1 ? '' : 's'} · ${allAreas.length} área${allAreas.length === 1 ? '' : 's'}`}
+            </p>
           </div>
-          <Input label="Título / Evento" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Culto da noite, Ensaio, Casamento..." />
+          <button onClick={onClose} aria-label="Fechar" className="mm-tap p-2 -mr-2 rounded-xl text-zinc-400 hover:text-zinc-100 hover:bg-white/8 flex items-center justify-center"><X className="w-5 h-5" /></button>
         </div>
 
-        <Textarea label="Ideia de conteúdo do dia" value={contentIdea} onChange={(e) => setContentIdea(e.target.value)} rows={3} placeholder="Ex: reels de bastidor, foto do louvor, story do pastor..." />
+        {/* Corpo */}
+        <div className="flex-1 overflow-y-auto px-5 sm:px-7 py-5 space-y-7">
+          {isNew && (
+            <div>
+              <p className="text-xs font-semibold text-zinc-400 mb-2">Começar de um modelo</p>
+              <div className="flex flex-wrap gap-2">
+                {EVENT_TEMPLATES.map(t => (
+                  <button key={t.id} type="button" onClick={() => applyTemplate(t)}
+                    className={`mm-tap px-3.5 py-2 rounded-xl text-sm font-semibold border transition-all ${tpl === t.id ? 'mm-lime-bg border-transparent' : 'border-white/12 text-zinc-200 hover:bg-white/8'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-        <div>
-          <label className="block text-xs font-medium text-zinc-300 uppercase tracking-wider mb-2">Áreas necessárias</label>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {VOLUNTEER_AREAS.map(a => {
-              const Ic = a.icon;
-              const active = areasNeeded.includes(a.value);
-              return (
-                <button key={a.value} type="button" onClick={() => toggle(a.value)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all ${active ? `bg-gradient-to-br ${a.color} ${a.border} ${a.text}` : 'bg-white/[0.03] border-white/10 text-zinc-300 hover:bg-white/[0.06]'}`}>
-                  <Ic className="w-4 h-4" /> <span className="flex-1 text-left">{a.label}</span> {active && <Check className="w-3.5 h-3.5" />}
+          <Step n={1} title="Quando e qual culto">
+            <div className="grid sm:grid-cols-[180px_1fr] gap-3">
+              <Input label="Data" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <Input label="Nome" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Culto da noite, Ensaio, Casamento…" />
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              {[{ v: false, l: 'Culto normal', h: 'Aparece pra equipe aprovada', ic: Calendar }, { v: true, l: 'Treinamento', h: 'Só pra quem está aprendendo', ic: Sparkles }].map(o => (
+                <button key={o.l} type="button" onClick={() => setIsTraining(o.v)}
+                  className={`mm-tap rounded-xl border-2 px-3 py-2.5 text-left transition-colors ${isTraining === o.v ? 'border-[var(--brand)] bg-brand-500/10' : 'border-white/10 hover:border-white/20'}`}>
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-50"><o.ic className="w-4 h-4" />{o.l}</div>
+                  <div className="text-[11px] text-zinc-400 mt-0.5">{o.h}</div>
                 </button>
-              );
-            })}
-          </div>
-        </div>
+              ))}
+            </div>
+            {isTraining && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+                {TRAINING_STAGES.map(s => (
+                  <button key={s.n} type="button" onClick={() => setTrainingStage(s.n)}
+                    className={`mm-tap rounded-xl border px-2.5 py-2 text-left ${trainingStage === s.n ? 'border-emerald-400 bg-emerald-500/12' : 'border-white/10 hover:bg-white/5'}`}>
+                    <div className="text-[10px] font-bold text-emerald-400">ETAPA {s.n}</div>
+                    <div className="text-xs text-zinc-100 leading-tight mt-0.5">{s.short}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Step>
 
-        {/* Funções de culto — os postos que essa escala precisa preencher */}
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-            <label className="block text-xs font-medium text-zinc-300 uppercase tracking-wider">
-              Funções do culto <span className="text-zinc-500 normal-case">— quem fica em cada posto</span>
-            </label>
-            <div className="flex items-center gap-1.5">
-              <button type="button" onClick={() => setRolesNeeded(MEDIA_ROLES.map(r => r.value))}
-                className="text-[11px] px-2 py-1 rounded-md border border-emerald-400/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20">
-                Escala completa
-              </button>
-              {rolesNeeded.length > 0 && (
-                <button type="button" onClick={() => setRolesNeeded([])}
-                  className="text-[11px] px-2 py-1 rounded-md border border-white/10 text-zinc-400 hover:bg-white/5">
-                  Limpar
-                </button>
+          <Step n={2} title="Quem precisa servir" hint="Toque nos postos. A área de cada posto entra sozinha.">
+            <div className="flex gap-2 mb-3">
+              <button type="button" onClick={() => setRolesNeeded(MEDIA_ROLES.map(r => r.value))} className="mm-tap text-xs font-semibold px-3 py-1.5 rounded-lg border border-white/12 text-zinc-200 hover:bg-white/8">Marcar todos</button>
+              {rolesNeeded.length > 0 && <button type="button" onClick={() => setRolesNeeded([])} className="mm-tap text-xs font-semibold px-3 py-1.5 rounded-lg text-zinc-500 hover:text-zinc-200">Limpar</button>}
+            </div>
+            <div className="space-y-3">
+              {rolesByArea.map(({ area, roles }) => (
+                <div key={area.value}>
+                  <div className={`text-[11px] font-bold uppercase tracking-wider mb-1.5 ${area.text}`}>{area.label}</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {roles.map(r => {
+                      const on = rolesNeeded.includes(r.value); const Ic = r.icon;
+                      return (
+                        <button key={r.value} type="button" onClick={() => toggleRole(r.value)}
+                          className={`mm-tap relative flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-semibold transition-all ${on ? 'border-[var(--brand)] bg-[var(--brand)] text-white shadow-[var(--shadow-brand)]' : 'border-white/10 text-zinc-300 hover:border-white/25'}`}>
+                          <Ic className="w-4 h-4 flex-shrink-0" /> <span className="truncate">{r.label}</span>
+                          {on && <Check className="w-3.5 h-3.5 ml-auto" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {areasNoRoles.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider mb-1.5 text-zinc-400">Outras áreas</div>
+                  <div className="flex flex-wrap gap-2">
+                    {areasNoRoles.map(a => {
+                      const on = areasNeeded.includes(a.value); const Ic = a.icon;
+                      return (
+                        <button key={a.value} type="button" onClick={() => toggleArea(a.value)}
+                          className={`mm-tap inline-flex items-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-all ${on ? 'border-[var(--brand)] bg-[var(--brand)] text-white' : 'border-white/10 text-zinc-300 hover:border-white/25'}`}>
+                          <Ic className="w-4 h-4" /> {a.label} {on && <Check className="w-3.5 h-3.5" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </div>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {MEDIA_ROLES.map(r => {
-              const Ic = r.icon;
-              const active = rolesNeeded.includes(r.value);
-              return (
-                <button key={r.value} type="button"
-                  onClick={() => setRolesNeeded(prev => prev.includes(r.value) ? prev.filter(x => x !== r.value) : [...prev, r.value])}
-                  className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs transition-all ${active ? `bg-gradient-to-br ${r.color} ${r.border} ${r.text}` : 'bg-white/[0.03] border-white/10 text-zinc-400 hover:bg-white/[0.06]'}`}>
-                  <Ic className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="flex-1 text-left truncate">{r.label}</span>
-                  {active && <Check className="w-3 h-3 flex-shrink-0" />}
-                </button>
-              );
-            })}
-          </div>
-          {rolesNeeded.length > 0 && (
-            <p className="text-[11px] text-zinc-500 mt-2">
-              {rolesNeeded.length} posto{rolesNeeded.length > 1 ? 's' : ''} — depois de salvar, monte a escala clicando no evento.
-            </p>
-          )}
-        </div>
+          </Step>
 
-        {/* Recado por área — orientação específica de cada coordenador */}
-        {areasNeeded.length > 0 && (
-          <div>
-            <label className="block text-xs font-medium text-zinc-300 uppercase tracking-wider mb-2">
-              Recado por área <span className="text-zinc-500 normal-case">— cada coordenador orienta a sua</span>
-            </label>
-            <div className="space-y-2">
-              {areasNeeded.map(a => {
-                const m = AREA_META[a]; if (!m) return null;
-                const Ic = m.icon;
-                return (
-                  <div key={a} className={`rounded-lg border ${m.border} bg-white/[0.02] p-2.5`}>
-                    <div className={`flex items-center gap-1.5 text-[11px] font-semibold ${m.text} mb-1.5`}>
-                      <Ic className="w-3.5 h-3.5" /> {m.label}
-                    </div>
-                    <textarea
-                      value={areaNotes[a] || ''}
-                      onChange={(e) => setAreaNotes(prev => ({ ...prev, [a]: e.target.value }))}
-                      rows={2}
-                      placeholder={`Orientação pra quem for de ${m.label}...`}
-                      className="mm-input w-full rounded-lg px-3 py-2 text-sm resize-none"
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Tipo do evento: culto normal ou treinamento */}
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-          <label className="flex items-center gap-2.5 cursor-pointer">
-            <input type="checkbox" checked={isTraining} onChange={(e) => setIsTraining(e.target.checked)} className="w-4 h-4 accent-emerald-500" />
-            <Sparkles className="w-4 h-4 text-emerald-500" />
-            <div className="flex-1">
-              <div className="text-sm text-zinc-100 font-medium">Evento de treinamento</div>
-              <div className="text-[11px] text-zinc-400">Aparece só pra quem ainda está treinando</div>
-            </div>
-          </label>
-
-          {isTraining ? (
-            <div className="mt-3 pt-3 border-t border-white/8">
-              <label className="block text-xs font-medium text-zinc-300 uppercase tracking-wider mb-2">Etapa do treinamento</label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {TRAINING_STAGES.map(s => {
-                  const active = trainingStage === s.n;
+          <Step n={3} title="Recados pra equipe" hint="Opcional. Aparece no cartão da escala de cada voluntário.">
+            <Textarea label="Ideia de conteúdo do dia" value={contentIdea} onChange={(e) => setContentIdea(e.target.value)} rows={2} placeholder="Ex: reels de bastidor, foto do louvor, story do pastor…" />
+            {allAreas.length > 0 && (
+              <div className="grid sm:grid-cols-2 gap-2 mt-3">
+                {allAreas.map(a => {
+                  const meta = AREA_META[a]; if (!meta) return null; const Ic = meta.icon;
                   return (
-                    <button key={s.n} type="button" onClick={() => setTrainingStage(s.n)}
-                      className={`text-left rounded-lg border px-3 py-2 text-xs transition-all ${active ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-500' : 'bg-white/[0.03] border-white/10 text-zinc-300 hover:bg-white/[0.06]'}`}>
-                      <div className="font-semibold">Etapa {s.n}</div>
-                      <div className="opacity-80 mt-0.5">{s.short}</div>
-                    </button>
+                    <div key={a} className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
+                      <div className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider mb-1 ${meta.text}`}><Ic className="w-3.5 h-3.5" /> {meta.label}</div>
+                      <input value={areaNotes[a] || ''} onChange={(e) => setAreaNotes(prev => ({ ...prev, [a]: e.target.value }))}
+                        placeholder="Recado pra essa área…" className="w-full bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none" />
+                    </div>
                   );
                 })}
               </div>
-            </div>
-          ) : (
-            <div className="mt-3 pt-3 border-t border-white/8">
-              <label className="block text-xs font-medium text-zinc-300 uppercase tracking-wider mb-2">
-                Nota mínima para participar <span className="text-zinc-500 normal-case">(0 = qualquer voluntário)</span>
-              </label>
-              <div className="flex items-center gap-3">
-                <input type="range" min="0" max="10" step="0.5" value={minRating} onChange={(e) => setMinRating(Number(e.target.value))}
-                  className="flex-1 accent-emerald-500" />
-                <span className={`text-lg font-serif tabular-nums w-12 text-right ${minRating > 0 ? 'text-emerald-500' : 'text-zinc-500'}`}>{minRating.toFixed(1)}</span>
+            )}
+          </Step>
+
+          {/* Avancado */}
+          <div className="rounded-2xl border border-white/8">
+            <button type="button" onClick={() => setMoreOpen(v => !v)} className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-zinc-300">
+              Mais opções <ChevronRight className={`w-4 h-4 transition-transform ${moreOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {moreOpen && (
+              <div className="px-4 pb-4 space-y-4">
+                {!isTraining && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-semibold text-zinc-300">Nota mínima pra ver essa escala</span>
+                      <span className="font-display text-xl text-zinc-50">{minRating > 0 ? minRating.toFixed(1) : 'Todos'}</span>
+                    </div>
+                    <input type="range" min="0" max="10" step="0.5" value={minRating} onChange={(e) => setMinRating(Number(e.target.value))} className="w-full accent-[var(--brand)]" />
+                  </div>
+                )}
+                <Textarea label="Notas internas (só admins veem)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
               </div>
-              <p className="text-[11px] text-zinc-500 mt-1">Só voluntários com nota média igual ou maior verão essa escala.</p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        <Textarea label="Notas internas (opcional)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
-
-        <div className="flex gap-2 pt-2">
-          {!isNew && <Button variant="ghost" onClick={del} className="text-rose-500"><Trash2 className="w-4 h-4" /> Excluir</Button>}
-          <div className="flex-1" />
-          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+        {/* Rodape fixo */}
+        <div className="flex items-center gap-2 px-5 sm:px-7 py-4 border-t border-white/8 bg-[var(--bg-surface)]">
+          {!isNew && <Button variant="danger" size="sm" onClick={del}><Trash2 className="w-4 h-4" /> <span className="hidden sm:inline">Excluir</span></Button>}
+          <Button variant="ghost" onClick={onClose} className="ml-auto">Cancelar</Button>
           <Button onClick={save} disabled={saving}>
-            {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Salvando...</> : 'Salvar'}
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} {isNew ? 'Lançar escala' : 'Salvar'}
           </Button>
         </div>
       </div>
@@ -11203,9 +11240,6 @@ const EventEditor = ({ event, dateHint, onClose, onSave, onDelete }) => {
   );
 };
 
-/* =====================================================================
-   EVENT DETAIL PANEL (admin) — vê candidatos, confirma/recusa
-===================================================================== */
 /* =====================================================================
    UPCOMING SCHEDULES LIST (admin) — lista detalhada de próximas escalas
    com quem está em vídeo, foto, storys etc + ideias
